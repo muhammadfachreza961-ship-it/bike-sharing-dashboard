@@ -15,15 +15,7 @@ st.title("🚲 Bike Sharing Dashboard")
 st.subheader("Preview Data")
 st.dataframe(df.head())
 
-st.subheader("Kolom Dataset")
-st.write(df.columns)
 
-# ======================
-# CEK KOLOM CNT
-# ======================
-if "cnt" not in df.columns:
-    st.error("Kolom 'cnt' tidak ditemukan di dataset!")
-    st.stop()
 
 # ======================
 # BASIC STATISTICS
