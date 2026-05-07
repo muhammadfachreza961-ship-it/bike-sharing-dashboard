@@ -4,144 +4,102 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import os
 
+# Konfigurasi halaman
 st.set_page_config(page_title="Bike Sharing Dashboard", layout="wide")
 
+# Memuat data
 BASE_DIR = os.path.dirname(__file__)
-df = pd.read_csv(os.path.join(BASE_DIR, "main_data.csv"))
+try:
+    df = pd.read_csv(os.path.join(BASE_DIR, "main_data.csv"))
+    if "dteday" in df.columns:
+        df["dteday"] = pd.to_datetime(df["dteday"])
+except Exception as e:
+    st.error(f"Gagal memuat data: {e}")
+    st.stop()
 
-if "dteday" in df.columns:
-    df["dteday"] = pd.to_datetime(df["dteday"])
+st.title("Bike Sharing Dashboard 🚲")
 
-st.title("Bike Sharing Dashboard")
-
-season_map = {
-    1: "Spring",
-    2: "Summer",
-    3: "Fall",
-    4: "Winter"
-}
-
-weather_map = {
-    1: "Cerah",
-    2: "Berawan",
-    3: "Hujan Ringan",
-    4: "Buruk"
-}
-
-if "season" in df.columns:
-    df["season_label"] = df["season"].map(season_map)
-
-if "weathersit" in df.columns:
-    df["weather_label"] = df["weathersit"].map(weather_map)
-
+# Sidebar - Filter
 st.sidebar.header("Filter Data")
 
-if "dteday" in df.columns:
+# 1. Validasi Input Tanggal
+try:
     min_date = df["dteday"].min()
     max_date = df["dteday"].max()
 
     date_range = st.sidebar.date_input(
         "Pilih Rentang Tanggal",
-        [min_date, max_date]
+        [min_date, max_date],
+        min_value=min_date,
+        max_value=max_date
     )
 
-    df = df[
-        (df["dteday"] >= pd.to_datetime(date_range[0])) &
-        (df["dteday"] <= pd.to_datetime(date_range[1]))
-    ]
+    if len(date_range) == 2:
+        start_date, end_date = date_range
+        main_df = df[(df["dteday"] >= pd.to_datetime(start_date)) & 
+                     (df["dteday"] <= pd.to_datetime(end_date))]
+    else:
+        st.info("Silakan pilih rentang tanggal lengkap (Start Date dan End Date) di sidebar.")
+        st.stop()
+except Exception:
+    st.error("Terjadi kesalahan pada filter tanggal.")
+    st.stop()
 
-if "season_label" in df.columns:
-    season = st.sidebar.selectbox(
+# 2. Filter Musim (Dibuat agar selalu tersedia dan aman)
+if "season" in df.columns:
+    # Kita ambil daftar musim unik dari dataframe asli agar pilihan tetap ada 
+    # meskipun filter tanggal mengubah isi data
+    list_musim = sorted(df["season"].unique())
+    
+    selected_season = st.sidebar.multiselect(
         "Pilih Musim",
-        options=sorted(df["season_label"].dropna().unique())
+        options=list_musim,
+        default=list_musim  # Secara default terpilih semua
     )
-    df = df[df["season_label"] == season]
+    
+    # Validasi: Jika user mengosongkan semua musim, berikan peringatan
+    if not selected_season:
+        st.sidebar.warning("Pilih minimal satu musim untuk menampilkan data.")
+        st.stop() # Dashboard berhenti di sini sampai user memilih musim kembali
+    
+    # Filter dataframe berdasarkan pilihan musim
+    main_df = main_df[main_df["season"].isin(selected_season)]
 
-if "weather_label" in df.columns:
-    weather = st.sidebar.multiselect(
-        "Pilih Cuaca",
-        options=df["weather_label"].dropna().unique(),
-        default=df["weather_label"].dropna().unique()
-    )
-    df = df[df["weather_label"].isin(weather)]
+# --- Bagian Visualisasi (Tetap Sama) ---
 
 st.subheader("Ringkasan Data")
-
 col1, col2, col3 = st.columns(3)
+with col1:
+    st.metric("Total Penyewaan", f"{main_df['cnt'].sum():,}")
+with col2:
+    st.metric("Rata-rata Penyewaan", f"{main_df['cnt'].mean():.2f}")
+with col3:
+    st.metric("Maksimum Penyewaan", f"{main_df['cnt'].max():,}")
 
-col1.metric("Total Penyewaan", int(df["cnt"].sum()))
-col2.metric("Rata-rata Penyewaan", int(df["cnt"].mean()))
-col3.metric("Maksimum Penyewaan", int(df["cnt"].max()))
+if "weathersit" in main_df.columns:
+    st.subheader("Pengaruh Kondisi Cuaca terhadap Penyewaan")
+    weather_avg = main_df.groupby("weathersit")["cnt"].mean().sort_values(ascending=False)
+    fig, ax = plt.subplots(figsize=(10, 5))
+    sns.barplot(x=weather_avg.index, y=weather_avg.values, palette="viridis", ax=ax)
+    ax.set_title("Rata-rata Penyewaan Berdasarkan Kondisi Cuaca")
+    ax.set_xlabel("Kondisi Cuaca (1: Cerah, 4: Buruk)")
+    ax.set_ylabel("Rata-rata Penyewaan")
+    st.pyplot(fig)
 
-st.subheader("Preview Data")
-st.dataframe(df.head())
-
-if "weather_label" in df.columns:
-    st.subheader("Pengaruh Cuaca terhadap Penyewaan")
-
-    weather_avg = df.groupby("weather_label")["cnt"].mean().sort_values(ascending=False)
-
-    st.dataframe(weather_avg)
-
-    fig1, ax1 = plt.subplots()
-    sns.barplot(x=weather_avg.index, y=weather_avg.values, ax=ax1)
-
-    ax1.set_title("Rata-rata Penyewaan Berdasarkan Cuaca")
-    ax1.set_xlabel("Cuaca")
-    ax1.set_ylabel("Rata-rata Penyewaan")
-
-    st.pyplot(fig1)
-
-    st.success(
-        f"Cuaca tertinggi: {weather_avg.idxmax()} ({weather_avg.max():.0f})"
-    )
-
-if "hr" in df.columns:
-    st.subheader("Pola Penyewaan Berdasarkan Jam")
-
-    hour_avg = df.groupby("hr")["cnt"].mean()
-
-    fig2, ax2 = plt.subplots()
-    ax2.plot(hour_avg.index, hour_avg.values, marker="o")
-
-    ax2.set_title("Rata-rata Penyewaan per Jam")
-    ax2.set_xlabel("Jam")
-    ax2.set_ylabel("Rata-rata Penyewaan")
-
-    st.pyplot(fig2)
-
-    st.success(
-        f"Puncak terjadi jam {hour_avg.idxmax()} "
-        f"dengan rata-rata {hour_avg.max():.0f}"
-    )
-
-if "hr" in df.columns and "workingday" in df.columns:
-    st.subheader("Weekday vs Weekend")
-
-    weekday = df[df["workingday"] == 1]
-    weekend = df[df["workingday"] == 0]
-
-    weekday_hour = weekday.groupby("hr")["cnt"].mean()
-    weekend_hour = weekend.groupby("hr")["cnt"].mean()
-
-    fig3, ax3 = plt.subplots()
-
-    ax3.plot(weekday_hour.index, weekday_hour.values, label="Weekday")
-    ax3.plot(weekend_hour.index, weekend_hour.values, label="Weekend")
-
-    ax3.set_title("Perbandingan Penyewaan")
-    ax3.set_xlabel("Jam")
-    ax3.set_ylabel("Rata-rata")
-    ax3.legend()
-
-    st.pyplot(fig3)
-
-
-st.subheader("Korelasi")
-
-numeric_df = df.select_dtypes(include=["number"])
-
-if numeric_df.shape[1] > 1:
-    fig4, ax4 = plt.subplots()
-    sns.heatmap(numeric_df.corr(), cmap="coolwarm", ax=ax4)
-    st.pyplot(fig4)
+if "hr" in main_df.columns and "workingday" in main_df.columns:
+    st.subheader("Pola Penyewaan: Hari Kerja vs Hari Libur")
+    hourly_pattern = main_df.groupby(["hr", "workingday"])["cnt"].mean().reset_index()
+    hourly_pattern["workingday"] = hourly_pattern["workingday"].map({1: "Hari Kerja", 0: "Hari Libur"})
+    fig, ax = plt.subplots(figsize=(12, 6))
+    sns.lineplot(data=hourly_pattern, x="hr", y="cnt", hue="workingday", marker="o", ax=ax)
+    ax.set_title("Perbandingan Rata-rata Penyewaan per Jam")
+    ax.set_xlabel("Jam (0-23)")
+    ax.set_ylabel("Rata-rata Jumlah Penyewaan")
+    ax.grid(True, linestyle='--', alpha=0.6)
+    st.pyplot(fig)
+    
+    st.info("""
+    **Insight:**
+    - Pada **Hari Kerja**, puncak penyewaan terjadi pada jam sibuk (08:00 dan 17:00-18:00).
+    - Pada **Hari Libur**, puncak penyewaan cenderung stabil di tengah hari (11:00-15:00).
+    """)
