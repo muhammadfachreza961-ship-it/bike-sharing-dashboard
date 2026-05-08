@@ -3,6 +3,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+current_dir = os.path.dirname(os.path.abspath(__file__))
+csv_path = os.path.join(current_dir, "main_data.csv")
 st.set_page_config(page_title="Bike Sharing Analysis Dashboard", layout="wide")
 
 st.markdown("""
@@ -16,12 +18,19 @@ st.markdown("""
     }
     </style>
     """, unsafe_allow_html=True)
+import os
+
 
 @st.cache_data
 def load_data():
-    df = pd.read_csv("main_data.csv")
-    df["dteday"] = pd.to_datetime(df["dteday"])
-    return df
+    # Menggunakan csv_path yang sudah didefinisikan secara absolut
+    if not os.path.exists(csv_path):
+        st.error(f"File tidak ditemukan di: {csv_path}")
+        st.stop()
+        
+    df_day = pd.read_csv(csv_path)
+    df_day["dteday"] = pd.to_datetime(df_day["dteday"])
+    return df_day
 
 try:
     main_df = load_data()
