@@ -5,101 +5,109 @@ import seaborn as sns
 import os
 
 # Konfigurasi halaman
-st.set_page_config(page_title="Bike Sharing Dashboard", layout="wide")
+st.set_page_config(page_title="Bike Sharing Analysis Dashboard", layout="wide")
 
-# Memuat data
-BASE_DIR = os.path.dirname(__file__)
+# --- LOAD DATA ---
+# Memastikan data yang dimuat adalah data yang sudah dibersihkan
+@st.cache_data
+def load_data():
+    # Menggunakan main_data.csv (hasil export dari notebook setelah cleaning)
+    # Jika belum ada, pastikan notebook sudah dijalankan sampai tahap day_df.to_csv('main_data.csv')
+    df_day = pd.read_csv("main_data.csv")
+    df_day["dteday"] = pd.to_datetime(df_day["dteday"])
+    return df_day
+
 try:
-    df = pd.read_csv(os.path.join(BASE_DIR, "main_data.csv"))
-    if "dteday" in df.columns:
-        df["dteday"] = pd.to_datetime(df["dteday"])
+    main_df = load_data()
 except Exception as e:
-    st.error(f"Gagal memuat data: {e}")
+    st.error(f"Gagal memuat data. Pastikan file 'main_data.csv' tersedia. Error: {e}")
     st.stop()
 
-st.title("Bike Sharing Dashboard 🚲")
+# --- SIDEBAR (Fitur Interaktif) ---
+st.sidebar.image("https://raw.githubusercontent.com/dicodingacademy/dicoding_dataset/main/logo_dicoding.png")
+st.sidebar.header("Filter Eksplorasi")
 
-# Sidebar - Filter
-st.sidebar.header("Filter Data")
+# Fitur Interaktif 1: Filter Rentang Tanggal
+min_date = main_df["dteday"].min()
+max_date = main_df["dteday"].max()
 
-# 1. Validasi Input Tanggal
-try:
-    min_date = df["dteday"].min()
-    max_date = df["dteday"].max()
+start_date, end_date = st.sidebar.date_input(
+    label='Rentang Waktu',
+    min_value=min_date,
+    max_value=max_date,
+    value=[min_date, max_date]
+)
 
-    date_range = st.sidebar.date_input(
-        "Pilih Rentang Tanggal",
-        [min_date, max_date],
-        min_value=min_date,
-        max_value=max_date
-    )
+# Filter dataframe berdasarkan input
+filtered_df = main_df[(main_df["dteday"] >= pd.to_datetime(start_date)) & 
+                       (main_df["dteday"] <= pd.to_datetime(end_date))]
 
-    if len(date_range) == 2:
-        start_date, end_date = date_range
-        main_df = df[(df["dteday"] >= pd.to_datetime(start_date)) & 
-                     (df["dteday"] <= pd.to_datetime(end_date))]
-    else:
-        st.info("Silakan pilih rentang tanggal lengkap (Start Date dan End Date) di sidebar.")
-        st.stop()
-except Exception:
-    st.error("Terjadi kesalahan pada filter tanggal.")
-    st.stop()
+# --- MAIN PAGE ---
+st.title("Bike Sharing Analysis Dashboard 🚲")
+st.markdown("Dashboard ini menampilkan hasil analisis data penyewaan sepeda berdasarkan pertanyaan bisnis.")
 
-# 2. Filter Musim (Dibuat agar selalu tersedia dan aman)
-if "season" in df.columns:
-    # Kita ambil daftar musim unik dari dataframe asli agar pilihan tetap ada 
-    # meskipun filter tanggal mengubah isi data
-    list_musim = sorted(df["season"].unique())
-    
-    selected_season = st.sidebar.multiselect(
-        "Pilih Musim",
-        options=list_musim,
-        default=list_musim  # Secara default terpilih semua
-    )
-    
-    # Validasi: Jika user mengosongkan semua musim, berikan peringatan
-    if not selected_season:
-        st.sidebar.warning("Pilih minimal satu musim untuk menampilkan data.")
-        st.stop() # Dashboard berhenti di sini sampai user memilih musim kembali
-    
-    # Filter dataframe berdasarkan pilihan musim
-    main_df = main_df[main_df["season"].isin(selected_season)]
-
-# --- Bagian Visualisasi (Tetap Sama) ---
-
-st.subheader("Ringkasan Data")
+# Metric Row
 col1, col2, col3 = st.columns(3)
 with col1:
-    st.metric("Total Penyewaan", f"{main_df['cnt'].sum():,}")
+    total_rentals = filtered_df["total_count"].sum()
+    st.metric("Total Penyewaan", value=f"{total_rentals:,}")
 with col2:
-    st.metric("Rata-rata Penyewaan", f"{main_df['cnt'].mean():.2f}")
+    avg_rentals = round(filtered_df["total_count"].mean(), 2)
+    st.metric("Rata-rata Harian", value=avg_rentals)
 with col3:
-    st.metric("Maksimum Penyewaan", f"{main_df['cnt'].max():,}")
+    max_rentals = filtered_df["total_count"].max()
+    st.metric("Puncak Penyewaan", value=f"{max_rentals:,}")
 
-if "weathersit" in main_df.columns:
-    st.subheader("Pengaruh Kondisi Cuaca terhadap Penyewaan")
-    weather_avg = main_df.groupby("weathersit")["cnt"].mean().sort_values(ascending=False)
-    fig, ax = plt.subplots(figsize=(10, 5))
-    sns.barplot(x=weather_avg.index, y=weather_avg.values, palette="viridis", ax=ax)
-    ax.set_title("Rata-rata Penyewaan Berdasarkan Kondisi Cuaca")
-    ax.set_xlabel("Kondisi Cuaca (1: Cerah, 4: Buruk)")
-    ax.set_ylabel("Rata-rata Penyewaan")
-    st.pyplot(fig)
+st.divider()
 
-if "hr" in main_df.columns and "workingday" in main_df.columns:
-    st.subheader("Pola Penyewaan: Hari Kerja vs Hari Libur")
-    hourly_pattern = main_df.groupby(["hr", "workingday"])["cnt"].mean().reset_index()
-    hourly_pattern["workingday"] = hourly_pattern["workingday"].map({1: "Hari Kerja", 0: "Hari Libur"})
-    fig, ax = plt.subplots(figsize=(12, 6))
-    sns.lineplot(data=hourly_pattern, x="hr", y="cnt", hue="workingday", marker="o", ax=ax)
-    ax.set_title("Perbandingan Rata-rata Penyewaan per Jam")
-    ax.set_xlabel("Jam (0-23)")
-    ax.set_ylabel("Rata-rata Jumlah Penyewaan")
-    ax.grid(True, linestyle='--', alpha=0.6)
-    st.pyplot(fig)
-    
-    st.info("""
-    **Insight:**
-    - Pada **Hari Kerja**, puncak penyewaan terjadi pada jam sibuk (08:00 dan 17:00-18:00).
-    - Pada **Hari Libur**, puncak penyewaan cenderung stabil di tengah hari (11:00-15:00).
-    """)
+# --- VISUALISASI 1: PENGARUH CUACA (Pertanyaan Bisnis 1) ---
+st.subheader("1. Pengaruh Kondisi Cuaca terhadap Penyewaan")
+fig, ax = plt.subplots(figsize=(10, 5))
+
+# Karena sudah di-mapping di cleaning, label otomatis 'Clear', 'Misty', dll.
+sns.barplot(
+    x="weather_condition", 
+    y="total_count", 
+    data=filtered_df, 
+    palette="viridis",
+    ax=ax,
+    estimator='mean'
+)
+ax.set_title("Rata-rata Penyewaan per Hari Berdasarkan Kondisi Cuaca", fontsize=15)
+ax.set_xlabel(None)
+ax.set_ylabel("Rata-rata Jumlah Penyewaan")
+st.pyplot(fig)
+
+with st.expander("Lihat Insight"):
+    st.write(
+        "Kondisi cuaca **Clear** (Cerah) menunjukkan angka penyewaan tertinggi. "
+        "Terjadi penurunan signifikan saat cuaca memasuki kategori **Light Snow/Rain**. "
+        "Hal ini membuktikan bahwa cuaca merupakan faktor penentu utama dalam keputusan pengguna."
+    )
+
+# --- VISUALISASI 2: POLA HARI KERJA VS LIBUR (Pertanyaan Bisnis 2) ---
+# Catatan: Untuk visualisasi per jam yang akurat, idealnya menggunakan hour_df. 
+# Jika hanya ada main_data.csv (harian), kita tampilkan perbandingan harian.
+st.subheader("2. Perbandingan Penyewaan: Hari Kerja vs Hari Libur")
+fig2, ax2 = plt.subplots(figsize=(10, 5))
+
+sns.boxplot(
+    x="workingday", 
+    y="total_count", 
+    data=filtered_df, 
+    palette="rocket",
+    ax=ax2
+)
+ax2.set_title("Distribusi Penyewaan: Hari Kerja vs Hari Libur", fontsize=15)
+ax2.set_xlabel(None)
+ax2.set_ylabel("Jumlah Penyewaan")
+st.pyplot(fig2)
+
+with st.expander("Lihat Insight"):
+    st.write(
+        "Meskipun rata-rata penyewaan pada hari kerja dan hari libur tampak bersaing, "
+        "hari kerja cenderung memiliki variansi yang lebih stabil. "
+        "Hal ini menunjukkan adanya kelompok pengguna rutin (komuter) pada hari kerja."
+    )
+
+st.caption('Copyright (c) Muhammad Fachreza Aldava Sinaga 2024')
